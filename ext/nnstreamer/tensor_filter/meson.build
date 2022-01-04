@@ -267,7 +267,7 @@ if pytorch_support_is_available
   nnstreamer_filter_torch_deps = pytorch_support_deps + [glib_dep, gst_dep, nnstreamer_dep]
 
   # pytorch version
-  if pytorch_support_deps[0].version() >= '1.2.0'
+  if pytorch_support_deps[0].version() >= '1.8.0'
     nnstreamer_filter_torch_deps += declare_dependency(compile_args: ['-DPYTORCH_VER_ATLEAST_1_2_0=1'])
   endif
 
@@ -275,7 +275,8 @@ if pytorch_support_is_available
     nnstreamer_filter_torch_sources,
     dependencies: nnstreamer_filter_torch_deps,
     install: true,
-    install_dir: filter_subplugin_install_dir
+    install_dir: filter_subplugin_install_dir,
+    link_args : '-Wl,--no-as-needed'
   )
 
   static_library('nnstreamer_filter_pytorch',

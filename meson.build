@@ -6,7 +6,7 @@ project('nnstreamer', 'c', 'cpp',
   license: ['LGPL-2.1'],
   meson_version: '>=0.50.0',
   default_options: [
-    'werror=true',
+    'werror=false',
     'warning_level=2',
     'c_std=gnu89',
     'cpp_std=c++14'
@@ -52,7 +52,8 @@ warning_flags = [
   '-Waddress',
   '-Wno-multichar',
   '-Wvla',
-  '-Wpointer-arith'
+  '-Wpointer-arith',
+  '-Wno-unused-parameter'
 ]
 
 warning_c_flags = [
@@ -313,7 +314,7 @@ features = {
     'project_args': { 'ENABLE_TENSORFLOW2_LITE': 1 }
   },
   'pytorch-support': {
-    'target': 'pytorch',
+    'target': 'torch-1.8',
     'project_args': { 'ENABLE_PYTORCH': 1 }
   },
   'caffe2-support': {

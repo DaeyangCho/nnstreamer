@@ -41,7 +41,7 @@
  * @brief Macro for debug mode.
  */
 #ifndef DBG
-#define DBG FALSE
+#define DBG TRUE
 #endif
 
 #define INPUT_TENSOR_META_CHAR "InputTensorMeta"
@@ -221,7 +221,7 @@ TorchCore::loadModel ()
 
 #if (DBG)
   gint64 stop_time = g_get_real_time ();
-  g_message ("Model is loaded: %" G_GINT64_FORMAT, (stop_time - start_time));
+  g_message ("Model is loaded: % us" G_GINT64_FORMAT, (stop_time - start_time));
 #endif
   return 0;
 }
@@ -390,7 +390,7 @@ TorchCore::processIValue (torch::jit::IValue value, GstTensorMemory *output)
 
   /** bring from gpu to cpu */
   if (use_gpu) {
-    output_tensor.to (at::kCPU);
+    output_tensor = output_tensor.to (at::kCPU);
   }
   /** make the memory contiguous for direct access */
   output_tensor = output_tensor.contiguous ();
@@ -443,7 +443,7 @@ TorchCore::invoke (const GstTensorMemory *input, GstTensorMemory *output)
     tensor = torch::from_blob (input[i].data, input_shape, options);
 
     if (use_gpu) {
-      tensor.to (at::kCUDA);
+      tensor = tensor.to (at::kCUDA);
     }
 
     input_feeds.emplace_back (tensor);
@@ -469,6 +469,7 @@ TorchCore::invoke (const GstTensorMemory *input, GstTensorMemory *output)
     }
   } else {
     output_value = model->forward (input_feeds);
+    // output_value = input_feeds[0];
   }
 
   if (output_value.isTensor ()) {
@@ -501,7 +502,7 @@ TorchCore::invoke (const GstTensorMemory *input, GstTensorMemory *output)
 
 #if (DBG)
   gint64 stop_time = g_get_real_time ();
-  g_message ("Invoke() is finished: %" G_GINT64_FORMAT, (stop_time - start_time));
+  g_message ("Invoke() is finished: % ms" G_GINT64_FORMAT, (stop_time - start_time));
 #endif
 
   return 0;
