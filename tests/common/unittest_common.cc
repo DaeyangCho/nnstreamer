@@ -948,7 +948,7 @@ TEST (commonTensorsConfig, validateInvalidParam2_n)
  */
 TEST (commonTensorsConfig, fromStructreInvalidParam0_n)
 {
-  GstStructure structure;
+  GstStructure structure = { 0 };
 
   EXPECT_FALSE (gst_tensors_config_from_structure (NULL, &structure));
 }
@@ -1450,64 +1450,6 @@ TEST (commonMetaInfo, convertMetaInvalidParam03_n)
 }
 
 /**
- * @brief Test to replace string.
- */
-TEST (commonStringUtil, replaceStr01)
-{
-  gchar *result;
-  guint changed;
-
-  result = g_strdup ("sourceelement ! parser ! converter ! format ! converter ! format ! converter ! sink");
-
-  result = replace_string (result, "sourceelement", "src", NULL, &changed);
-  EXPECT_EQ (changed, 1U);
-  EXPECT_STREQ (result, "src ! parser ! converter ! format ! converter ! format ! converter ! sink");
-
-  result = replace_string (result, "format", "fmt", NULL, &changed);
-  EXPECT_EQ (changed, 2U);
-  EXPECT_STREQ (result, "src ! parser ! converter ! fmt ! converter ! fmt ! converter ! sink");
-
-  result = replace_string (result, "converter", "conv", NULL, &changed);
-  EXPECT_EQ (changed, 3U);
-  EXPECT_STREQ (result, "src ! parser ! conv ! fmt ! conv ! fmt ! conv ! sink");
-
-  result = replace_string (result, "invalidname", "invalid", NULL, &changed);
-  EXPECT_EQ (changed, 0U);
-  EXPECT_STREQ (result, "src ! parser ! conv ! fmt ! conv ! fmt ! conv ! sink");
-
-  g_free (result);
-}
-
-/**
- * @brief Test to replace string.
- */
-TEST (commonStringUtil, replaceStr02)
-{
-  gchar *result;
-  guint changed;
-
-  result = g_strdup ("source! parser ! sources ! mysource ! source ! format !source! conv source");
-
-  result = replace_string (result, "source", "src", " !", &changed);
-  EXPECT_EQ (changed, 4U);
-  EXPECT_STREQ (result, "src! parser ! sources ! mysource ! src ! format !src! conv src");
-
-  result = replace_string (result, "src", "mysource", "! ", &changed);
-  EXPECT_EQ (changed, 4U);
-  EXPECT_STREQ (result, "mysource! parser ! sources ! mysource ! mysource ! format !mysource! conv mysource");
-
-  result = replace_string (result, "source", "src", NULL, &changed);
-  EXPECT_EQ (changed, 6U);
-  EXPECT_STREQ (result, "mysrc! parser ! srcs ! mysrc ! mysrc ! format !mysrc! conv mysrc");
-
-  result = replace_string (result, "mysrc", "src", ";", &changed);
-  EXPECT_EQ (changed, 0U);
-  EXPECT_STREQ (result, "mysrc! parser ! srcs ! mysrc ! mysrc ! format !mysrc! conv mysrc");
-
-  g_free (result);
-}
-
-/**
  * @brief Test for aggregation utils (clear data).
  */
 TEST (commonAggregationUtil, clearData)
@@ -1723,6 +1665,39 @@ TEST (confCustom, envStr01)
 }
 
 /**
+ * @brief Test for extra configuration path
+ */
+TEST (confCustom, checkExtraConfPath_p)
+{
+  gchar *fullpath = g_build_path ("/", g_get_tmp_dir (), "nns-tizen-XXXXXX", NULL);
+  gchar *dir = g_mkdtemp (fullpath);
+  gchar *filename = g_build_path ("/", dir, "nnstreamer.ini", NULL);
+  const gchar *extra_conf = "/opt/usr/vd/product.ini";
+  gchar *confenv = g_strdup (g_getenv ("NNSTREAMER_CONF"));;
+
+  FILE *fp = g_fopen (filename, "w");
+  ASSERT_TRUE (fp != NULL);
+  g_fprintf (fp, "[common]\n");
+  g_fprintf (fp, "extra_config_path=%s\n", extra_conf);
+  fclose (fp);
+
+  EXPECT_TRUE (g_setenv ("NNSTREAMER_CONF", filename, TRUE));
+  EXPECT_TRUE (nnsconf_loadconf (TRUE));
+
+  EXPECT_TRUE (check_custom_conf ("common", "extra_config_path", extra_conf));
+  g_remove (filename);
+  g_free (fullpath);
+  g_free (filename);
+
+  if (confenv) {
+    EXPECT_TRUE (g_setenv ("NNSTREAMER_CONF", confenv, TRUE));
+    g_free (confenv);
+  } else {
+    g_unsetenv ("NNSTREAMER_CONF");
+  }
+}
+
+/**
  * @brief Test nnstreamer conf util (name prefix with invalid param).
  */
 TEST (confCustom, subpluginPrefix_n)
@@ -1755,6 +1730,185 @@ TEST (versionControl, getVer01)
   g_free (verstr);
   g_free (verstr2);
   g_free (verstr3);
+}
+
+/**
+ * @brief Test tensor buffer util (create static tensor buffer)
+ */
+TEST (commonUtil, createStaticTensorBuffer)
+{
+  GstTensorsConfig config;
+  GstBuffer *in, *out;
+  GstMemory *mem;
+  GstMapInfo map;
+  guint i, j, num, expected;
+  guint *input, *output;
+  gsize data_size;
+
+  gst_tensors_config_init (&config);
+  config.format = _NNS_TENSOR_FORMAT_STATIC;
+  config.rate_n = config.rate_d = 1;
+  config.info.num_tensors = 3U;
+  gst_tensors_info_parse_dimensions_string (&config.info, "20,40,50");
+  gst_tensors_info_parse_types_string (&config.info, "uint32,uint32,uint32");
+
+  data_size = gst_tensors_info_get_size (&config.info, -1);
+  input = (guint *) g_malloc (data_size);
+
+  for (i = 0; i < data_size / sizeof (guint); i++)
+    input[i] = i;
+
+  in = gst_buffer_new_wrapped (input, data_size);
+  out = gst_tensor_buffer_from_config (in, &config);
+  ASSERT_TRUE (out != NULL);
+
+  num = gst_buffer_n_memory (out);
+  EXPECT_EQ (num, config.info.num_tensors);
+
+  expected = 0U;
+  for (i = 0; i < num; i++) {
+    mem = gst_buffer_peek_memory (out, i);
+    ASSERT_TRUE (gst_memory_map (mem, &map, GST_MAP_READ));
+    EXPECT_EQ (map.size, gst_tensors_info_get_size (&config.info, i));
+
+    output = (guint *) map.data;
+    for (j = 0; j < map.size / sizeof (guint); j++)
+      EXPECT_EQ (output[j], expected++);
+
+    gst_memory_unmap (mem, &map);
+  }
+
+  gst_buffer_unref (out);
+}
+
+/**
+ * @brief Test tensor buffer util (create flexible tensor buffer)
+ */
+TEST (commonUtil, createFlexTensorBuffer)
+{
+  GstTensorsConfig config;
+  GstBuffer *in, *out;
+  GstMemory *mem;
+  GstMapInfo map;
+  guint i, j, num;
+  guint *input, *output;
+  guint8 *data;
+  GstTensorMetaInfo meta[3];
+  gsize data_size, offset, hsize[3], dsize[3];
+
+  gst_tensors_config_init (&config);
+  config.format = _NNS_TENSOR_FORMAT_FLEXIBLE;
+  config.rate_n = config.rate_d = 1;
+  config.info.num_tensors = 3U;
+  gst_tensors_info_parse_dimensions_string (&config.info, "20,30,40");
+  gst_tensors_info_parse_types_string (&config.info, "uint32,uint32,uint32");
+
+  data_size = 0;
+  for (i = 0; i < 3U; i++) {
+    gst_tensor_info_convert_to_meta (&config.info.info[i], &meta[i]);
+    hsize[i] = gst_tensor_meta_info_get_header_size (&meta[i]);
+    dsize[i] = gst_tensor_meta_info_get_data_size (&meta[i]);
+    data_size += (hsize[i] + dsize[i]);
+  }
+
+  data = (guint8 *) g_malloc (data_size);
+
+  offset = 0;
+  for (i = 0; i < 3U; i++) {
+    gst_tensor_meta_info_update_header (&meta[i], data + offset);
+
+    input = (guint *) (data + offset + hsize[i]);
+    for (j = 0; j < dsize[i] / sizeof (guint); j++)
+      input[j] = i * 10 + j;
+
+    offset += (hsize[i] + dsize[i]);
+  }
+
+  in = gst_buffer_new_wrapped (data, data_size);
+  out = gst_tensor_buffer_from_config (in, &config);
+  ASSERT_TRUE (out != NULL);
+
+  num = gst_buffer_n_memory (out);
+  EXPECT_EQ (num, config.info.num_tensors);
+
+  for (i = 0; i < num; i++) {
+    mem = gst_buffer_peek_memory (out, i);
+    ASSERT_TRUE (gst_memory_map (mem, &map, GST_MAP_READ));
+    EXPECT_EQ (map.size, hsize[i] + dsize[i]);
+
+    output = (guint *) (map.data + hsize[i]);
+    for (j = 0; j < dsize[i] / sizeof (guint); j++)
+      EXPECT_EQ (output[j], i * 10 + j);
+
+    gst_memory_unmap (mem, &map);
+  }
+
+  gst_buffer_unref (out);
+}
+
+/**
+ * @brief Test tensor buffer util (invalid config)
+ */
+TEST (commonUtil, createTensorBufferInvalidConfig_n)
+{
+  GstTensorsConfig config;
+  GstBuffer *in, *out;
+
+  gst_tensors_config_init (&config);
+
+  in = gst_buffer_new_allocate (NULL, 200, NULL);
+  out = gst_tensor_buffer_from_config (in, &config);
+  EXPECT_FALSE (out != NULL);
+}
+
+/**
+ * @brief Test tensor buffer util (null param)
+ */
+TEST (commonUtil, createTensorBufferNullParam_n)
+{
+  GstTensorsConfig config;
+  GstBuffer *in, *out;
+  gsize data_size;
+
+  gst_tensors_config_init (&config);
+  config.format = _NNS_TENSOR_FORMAT_STATIC;
+  config.rate_n = config.rate_d = 1;
+  config.info.num_tensors = 3U;
+  gst_tensors_info_parse_dimensions_string (&config.info, "20,40,50");
+  gst_tensors_info_parse_types_string (&config.info, "uint32,uint32,uint32");
+
+  data_size = gst_tensors_info_get_size (&config.info, -1);
+
+  in = gst_buffer_new_allocate (NULL, data_size, NULL);
+  out = gst_tensor_buffer_from_config (NULL, &config);
+  EXPECT_FALSE (out != NULL);
+
+  in = gst_buffer_new_allocate (NULL, data_size, NULL);
+  out = gst_tensor_buffer_from_config (in, NULL);
+  EXPECT_FALSE (out != NULL);
+}
+
+/**
+ * @brief Test tensor buffer util (invalid buffer size)
+ */
+TEST (commonUtil, createTensorBufferInvalidSize_n)
+{
+  GstTensorsConfig config;
+  GstBuffer *in, *out;
+  gsize data_size;
+
+  gst_tensors_config_init (&config);
+  config.format = _NNS_TENSOR_FORMAT_STATIC;
+  config.rate_n = config.rate_d = 1;
+  config.info.num_tensors = 3U;
+  gst_tensors_info_parse_dimensions_string (&config.info, "20,40,50");
+  gst_tensors_info_parse_types_string (&config.info, "uint32,uint32,uint32");
+
+  data_size = gst_tensors_info_get_size (&config.info, -1) / 2;
+
+  in = gst_buffer_new_allocate (NULL, data_size, NULL);
+  out = gst_tensor_buffer_from_config (in, &config);
+  EXPECT_FALSE (out != NULL);
 }
 
 /**

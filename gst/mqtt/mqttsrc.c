@@ -178,6 +178,7 @@ gst_mqtt_src_init (GstMqttSrc * self)
   gst_base_src_set_async (basesrc, FALSE);
 
   /** init mqttsrc properties */
+  self->mqtt_client_handle = NULL;
   self->debug = DEFAULT_DEBUG;
   self->is_live = DEFAULT_IS_LIVE;
   self->mqtt_client_id = g_strdup (DEFAULT_MQTT_CLIENT_ID);
@@ -185,9 +186,9 @@ gst_mqtt_src_init (GstMqttSrc * self)
   self->mqtt_host_port = g_strdup (DEFAULT_MQTT_HOST_PORT);
   self->mqtt_topic = NULL;
   self->mqtt_sub_timeout = (gint64) DEFAULT_MQTT_SUB_TIMEOUT;
+  self->mqtt_conn_opts = conn_opts;
   self->mqtt_conn_opts.cleansession = DEFAULT_MQTT_OPT_CLEANSESSION;
   self->mqtt_conn_opts.keepAliveInterval = DEFAULT_MQTT_OPT_KEEP_ALIVE_INTERVAL;
-  self->mqtt_conn_opts = conn_opts;
   self->mqtt_conn_opts.onSuccess = cb_mqtt_on_connect;
   self->mqtt_conn_opts.onFailure = cb_mqtt_on_connect_failure;
   self->mqtt_conn_opts.context = self;
@@ -409,7 +410,11 @@ gst_mqtt_src_class_finalize (GObject * object)
   GstMqttSrc *self = GST_MQTT_SRC (object);
   GstBuffer *remained;
 
-  g_free (self->mqtt_client_handle);
+  if (self->mqtt_client_handle) {
+    MQTTAsync_destroy (&self->mqtt_client_handle);
+    self->mqtt_client_handle = NULL;
+  }
+
   g_free (self->mqtt_client_id);
   g_free (self->mqtt_host_address);
   g_free (self->mqtt_host_port);
@@ -520,6 +525,7 @@ gst_mqtt_src_start (GstBaseSrc * basesrc)
   gchar *haddr = g_strdup_printf ("%s:%s", self->mqtt_host_address,
       self->mqtt_host_port);
   int ret;
+  gint64 end_time;
 
   if (!g_strcmp0 (DEFAULT_MQTT_CLIENT_ID, self->mqtt_client_id)) {
     g_free (self->mqtt_client_id);
@@ -536,7 +542,7 @@ gst_mqtt_src_start (GstBaseSrc * basesrc)
    *                                 mechanism
    */
   ret = MQTTAsync_create (&self->mqtt_client_handle, haddr,
-      self->mqtt_client_id, MQTTCLIENT_PERSISTENCE_DEFAULT, NULL);
+      self->mqtt_client_id, MQTTCLIENT_PERSISTENCE_NONE, NULL);
   g_free (haddr);
   if (ret != MQTTASYNC_SUCCESS)
     return FALSE;
@@ -546,8 +552,28 @@ gst_mqtt_src_start (GstBaseSrc * basesrc)
 
   ret = MQTTAsync_connect (self->mqtt_client_handle, &self->mqtt_conn_opts);
   if (ret != MQTTASYNC_SUCCESS)
-    return FALSE;
+    goto error;
+
+  /* Waiting for the connection */
+  end_time = g_get_monotonic_time () +
+      DEFAULT_MQTT_CONN_TIMEOUT_SEC * G_TIME_SPAN_SECOND;
+  g_mutex_lock (&self->mqtt_src_mutex);
+  while (!self->is_connected) {
+    if (!g_cond_wait_until (&self->mqtt_src_gcond, &self->mqtt_src_mutex,
+            end_time)) {
+      g_mutex_unlock (&self->mqtt_src_mutex);
+      g_critical ("Failed to connect to MQTT broker from mqttsrc."
+          "Please check broker is running status or broker host address.");
+      goto error;
+    }
+  }
+  g_mutex_unlock (&self->mqtt_src_mutex);
   return TRUE;
+
+error:
+  MQTTAsync_destroy (&self->mqtt_client_handle);
+  self->mqtt_client_handle = NULL;
+  return FALSE;
 }
 
 /**
@@ -564,7 +590,7 @@ gst_mqtt_src_stop (GstBaseSrc * basesrc)
   self->is_connected = FALSE;
   g_mutex_unlock (&self->mqtt_src_mutex);
   MQTTAsync_destroy (&self->mqtt_client_handle);
-
+  self->mqtt_client_handle = NULL;
   return TRUE;
 }
 
@@ -804,14 +830,14 @@ ret_flow_err:
 static gboolean
 gst_mqtt_src_query (GstBaseSrc * basesrc, GstQuery * query)
 {
-  GstEventType type = GST_QUERY_TYPE (query);
+  GstQueryType type = GST_QUERY_TYPE (query);
   GstMqttSrc *self = GST_MQTT_SRC (basesrc);
   gboolean res = FALSE;
 
   if (self->debug)
     GST_DEBUG_OBJECT (self, "Got %s event", gst_query_type_get_name (type));
 
-  switch (GST_QUERY_TYPE (query)) {
+  switch (type) {
     case GST_QUERY_LATENCY:{
       GstClockTime min_latency = 0;
       GstClockTime max_latency = GST_CLOCK_TIME_NONE;

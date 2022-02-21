@@ -28,6 +28,7 @@
 #include <glib.h>
 #include <nnstreamer_cppplugin_api_filter.hh>
 #include <nnstreamer_log.h>
+#include <nnstreamer_util.h>
 #include <tensor_common.h>
 
 #include <edgetpu.h>
@@ -168,11 +169,10 @@ edgetpu_subplugin::cleanup ()
     model = nullptr; /* delete unique_ptr */
   }
 
-  if (model_path)
-    delete model_path;
   gst_tensors_info_free (std::addressof (inputInfo));
   gst_tensors_info_free (std::addressof (outputInfo));
 
+  g_free (model_path);
   model_path = nullptr;
   empty_model = true;
 }
@@ -433,6 +433,9 @@ edgetpu_subplugin::getModelInfo (
 int
 edgetpu_subplugin::eventHandler (event_ops ops, GstTensorFilterFrameworkEventData &data)
 {
+  UNUSED (ops);
+  UNUSED (data);
+
   return -ENOENT;
 }
 

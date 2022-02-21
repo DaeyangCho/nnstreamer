@@ -16,6 +16,8 @@
 #include <flatbuffers/flexbuffers.h>
 #include <gst/app/gstappsrc.h>
 #include <nnstreamer_plugin_api_converter.h>
+#include <nnstreamer_util.h>
+
 
 #define TEST_TIMEOUT_MS (10000U)
 
@@ -66,7 +68,7 @@ tensor_converter_custom_cb (GstBuffer *in_buf,
     }
     flexbuffers::Blob tensor_data = tensor[3].AsBlob ();
     mem_size = tensor_data.size ();
-    mem_data = g_memdup (tensor_data.data (), mem_size);
+    mem_data = _g_memdup (tensor_data.data (), mem_size);
 
     out_mem = gst_memory_new_wrapped ((GstMemoryFlags) 0, mem_data, mem_size,
         0, mem_size, mem_data, g_free);
@@ -150,6 +152,9 @@ TEST (tensorConverterCustom, normal0)
 
   gst_object_unref (pipeline);
   g_free (str_pipeline);
+  g_remove (tmp_tensor_raw);
+  g_remove (tmp_flex_raw);
+  g_remove (tmp_flex_to_tensor);
   g_free (tmp_tensor_raw);
   g_free (tmp_flex_raw);
   g_free (tmp_flex_to_tensor);
@@ -395,8 +400,8 @@ TEST (tensorConverterPython, dynamicDimension)
   data_received = (guint *) g_malloc0 (sizeof (guint));
   g_signal_connect (sink_handle, "new-data", (GCallback)new_data_cb, data_received);
 
-  buf_0 = gst_buffer_new_wrapped (g_memdup (_test_frames1, 96), 96);
-  buf_1 = gst_buffer_new_wrapped (g_memdup (_test_frames2, 192), 192);
+  buf_0 = gst_buffer_new_wrapped (_g_memdup (_test_frames1, 96), 96);
+  buf_1 = gst_buffer_new_wrapped (_g_memdup (_test_frames2, 192), 192);
   buf_2 = gst_buffer_copy (buf_0);
 
   EXPECT_EQ (setPipelineStateSync (pipeline, GST_STATE_PLAYING, TEST_TIMEOUT_MS), 0);

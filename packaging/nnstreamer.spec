@@ -34,7 +34,8 @@
 %define		mqtt_support 1
 %define		lua_support 1
 %define		tvm_support 1
-%define		snpe_support 0
+%define		snpe_support 1
+%define		trix_engine_support 1
 
 %define		check_test 1
 %define		release_test 1
@@ -66,6 +67,7 @@
 %if ( 0%{?tizen_version_major} == 6 && 0%{?tizen_version_minor} < 5 ) || 0%{?tizen_version_major} < 6
 %define		grpc_support 0
 %define		tensorflow2_lite_support 0
+%define		trix_engine_support 0
 %endif
 
 # Disable e-TPU if it's not 64bit system
@@ -102,6 +104,7 @@
 %define		lua_support 0
 %define		mqtt_support 0
 %define		tvm_support 0
+%define		snpe_support 0
 %endif
 
 # DA requested to remove unnecessary module builds
@@ -114,18 +117,17 @@
 %define		lua_support 0
 %define		mqtt_support 0
 %define		tvm_support 0
-%endif
-
-# TODO: The variable `_with_qc_snpe` is temporary. Make proper one.
-%if 0%{?_with_qc_snpe}
-%ifarch aarch64
-%define		snpe_support 1
-%endif
+%define		trix_engine_support 0
 %endif
 
 # Release unit test suite as a subpackage only if check_test is enabled.
 %if !0%{?check_test}
 %define		release_test 0
+%endif
+
+# Current Tizen Robot profile only supports aarch64.
+%ifnarch aarch64
+%define		snpe_support 0
 %endif
 
 # If it is tizen, we can export Tizen API packages.
@@ -140,7 +142,7 @@ Summary:	gstreamer plugins for neural networks
 # 2. Tizen  : ./packaging/nnstreamer.spec
 # 3. Android: ./jni/nnstreamer.mk
 # 4. Meson  : ./meson.build
-Version:	2.0.0
+Version:	2.1.0
 Release:	0
 Group:		Machine Learning/ML Framework
 Packager:	MyungJoo Ham <myungjoo.ham@samsung.com>
@@ -286,6 +288,10 @@ BuildRequires:	tvm-runtime-devel
 BuildRequires:	snpe-devel
 %endif
 
+%if 0%{?trix_engine_support}
+BuildRequires:	npu-engine-devel
+%endif
+
 # Unit Testing Uses SSAT (hhtps://github.com/myungjoo/SSAT.git)
 %if 0%{?unit_test}
 BuildRequires:	ssat >= 1.1.0
@@ -370,6 +376,7 @@ NNStreamer's tensor_filter subplugin of Python3.
 %if 0%{?armnn_support}
 %package armnn
 Summary:	NNStreamer Arm NN support
+Requires:	nnstreamer = %{version}-%{release}
 Requires:	armnn
 %description armnn
 NNStreamer's tensor_filter subplugin of Arm NN Inference Engine.
@@ -380,9 +387,6 @@ NNStreamer's tensor_filter subplugin of Arm NN Inference Engine.
 %package vivante
 Summary:    NNStreamer subplugin for Verisilion's Vivante
 Requires:   nnstreamer = %{version}-%{release}
-Requires:   gst-plugins-good
-Requires:   gst-plugins-good-extra
-Requires:   gst-libav
 %description vivante
 NNStreamer filter subplugin for Verisicon Vivante.
 %define enable_vivante -Denable-vivante=true
@@ -462,6 +466,16 @@ Requires:	snpe
 NNStreamer's tensor_fliter subplugin of snpe
 %endif
 
+# for trix-engone
+%if 0%{?trix_engine_support}
+%package trix-engine
+Summary:	NNStreamer TRIx-Engine support
+Requires:	nnstreamer = %{version}-%{release}
+Requires:	trix-engine
+%description trix-engine
+NNStreamer's tensor_filter subplugin of trix-engine
+%endif
+
 %package devel
 Summary:	Development package for custom tensor operator developers (tensor_filter/custom)
 Requires:	nnstreamer = %{version}-%{release}
@@ -508,6 +522,7 @@ HTML pages of lcov results of NNStreamer generated during rpmbuild
 %if 0%{?nnfw_support}
 %package nnfw
 Summary:	NNStreamer Tizen-nnfw runtime support
+Requires:	nnstreamer = %{version}-%{release}
 Requires:	nnfw
 %description nnfw
 NNStreamer's tensor_filter subplugin of Tizen-NNFW Runtime. (5.5 M2 +)
@@ -516,6 +531,7 @@ NNStreamer's tensor_filter subplugin of Tizen-NNFW Runtime. (5.5 M2 +)
 %if 0%{?mvncsdk2_support}
 %package	ncsdk2
 Summary:	NNStreamer Intel Movidius NCSDK2 support
+Requires:	nnstreamer = %{version}-%{release}
 Group:		Machine Learning/ML Framework
 %description	ncsdk2
 NNStreamer's tensor_fliter subplugin of Intel Movidius Neural Compute stick SDK2.
@@ -639,12 +655,17 @@ Provides additional gstreamer plugins for nnstreamer pipelines
 
 %if %{with tizen}
 %define enable_tizen -Denable-tizen=true -Dtizen-version-major=0%{tizen_version_major}
-# Element restriction in Tizen
-%define restricted_element_base     'capsfilter input-selector output-selector queue tee valve appsink appsrc audioconvert audiorate audioresample audiomixer videoconvert videocrop videorate videoscale videoflip videomixer compositor fakesrc fakesink filesrc filesink audiotestsrc videotestsrc jpegparse jpegenc jpegdec pngenc pngdec tcpclientsink tcpclientsrc tcpserversink tcpserversrc xvimagesink ximagesink evasimagesink evaspixmapsink glimagesink theoraenc lame vorbisenc wavenc volume oggmux avimux matroskamux v4l2src avsysvideosrc camerasrc tvcamerasrc pulsesrc fimcconvert tizenwlsink gdppay gdpdepay join '
-%define restricted_element_edgeai   'rtpdec rtspsrc rtspclientsink zmqsrc zmqsink mqttsrc mqttsink udpsrc udpsink multiudpsink queryclient queryserversrc queryserversink '
-%define restricted_element_audio    'audioamplify audiochebband audiocheblimit audiodynamic audioecho audiofirfilter audioiirfilter audioinvert audiokaraoke audiopanorama audiowsincband audiowsinclimit scaletempo stereo '
-%define restricted_element          %{restricted_element_base}%{restricted_element_audio}%{restricted_element_edgeai}
-%define element_restriction -Denable-element-restriction=true -Drestricted-elements=%{restricted_element}
+# Element allowance in Tizen
+%define allowed_element_base     'capsfilter input-selector output-selector queue tee valve appsink appsrc audioconvert audiorate audioresample audiomixer videoconvert videocrop videorate videoscale videoflip videomixer compositor fakesrc fakesink filesrc filesink audiotestsrc videotestsrc jpegparse jpegenc jpegdec pngenc pngdec tcpclientsink tcpclientsrc tcpserversink tcpserversrc xvimagesink ximagesink evasimagesink evaspixmapsink glimagesink theoraenc lame vorbisenc wavenc volume oggmux avimux matroskamux v4l2src avsysvideosrc camerasrc tvcamerasrc pulsesrc fimcconvert tizenwlsink gdppay gdpdepay join '
+%define allowed_element_edgeai   'rtpdec rtspsrc rtspclientsink zmqsrc zmqsink mqttsrc mqttsink udpsrc udpsink multiudpsink '
+%define allowed_element_audio    'audioamplify audiochebband audiocheblimit audiodynamic audioecho audiofirfilter audioiirfilter audioinvert audiokaraoke audiopanorama audiowsincband audiowsinclimit scaletempo stereo '
+%if "%{?profile}" == "tv"
+%define allowed_element_vd       'tvdpbsrc '
+%define allowed_element          %{allowed_element_base}%{allowed_element_audio}%{allowed_element_edgeai}%{allowed_element_vd}
+%else
+%define allowed_element          %{allowed_element_base}%{allowed_element_audio}%{allowed_element_edgeai}
+%endif
+%define element_restriction -Denable-element-restriction=true -Dallowed-elements=%{allowed_element}
 %endif #if tizen
 
 # Support tensorflow
@@ -735,11 +756,11 @@ Provides additional gstreamer plugins for nnstreamer pipelines
 %define enable_tvm -Dtvm-support=disabled
 %endif
 
-# Support snpe
-%if 0%{?snpe_support}
-%define enable_snpe -Dsnpe-support=enabled
+# Support trix-engine
+%if 0%{?trix_engine_support}
+%define enable_trix_engine -Dtrix-engine-support=enabled
 %else
-%define enable_snpe -Dsnpe-support=disabled
+%define enable_trix_engine -Dtrix-engine-support=disabled
 %endif
 
 # Framework priority for each file extension
@@ -781,11 +802,12 @@ CXXFLAGS=`echo $CXXFLAGS | sed -e "s|-Wp,-D_FORTIFY_SOURCE=[1-9]||g"`
 mkdir -p build
 
 meson --buildtype=plain --prefix=%{_prefix} --sysconfdir=%{_sysconfdir} --libdir=%{_lib} \
-	--bindir=%{nnstbindir} --includedir=include \
+	--bindir=%{nnstbindir} --includedir=include -Dsubplugindir=%{_prefix}/lib/nnstreamer \
 	%{enable_tizen} %{element_restriction} %{fw_priority} -Denable-env-var=false -Denable-symbolic-link=false \
 	%{enable_tf_lite} %{enable_tf2_lite} %{enable_tf} %{enable_pytorch} %{enable_caffe2} %{enable_python3} \
-	%{enable_nnfw_runtime} %{enable_mvncsdk2} %{enable_openvino} %{enable_armnn} %{enable_edgetpu}  %{enable_vivante} %{enable_flatbuf} \
-	%{enable_tizen_sensor} %{enable_mqtt} %{enable_lua} %{enable_tvm} %{enable_snpe} %{enable_test} %{enable_test_coverage} %{install_test} \
+	%{enable_nnfw_runtime} %{enable_mvncsdk2} %{enable_openvino} %{enable_armnn} %{enable_edgetpu}  %{enable_vivante} \
+	%{enable_flatbuf} %{enable_trix_engine} \
+	%{enable_tizen_sensor} %{enable_mqtt} %{enable_lua} %{enable_tvm} %{enable_test} %{enable_test_coverage} %{install_test} \
 	build
 
 ninja -C build %{?_smp_mflags}
@@ -908,6 +930,7 @@ cp -r result %{buildroot}%{_datadir}/nnstreamer/unittest/
 %{_prefix}/lib/nnstreamer/decoders/libnnstreamer_decoder_image_segment.so
 %{_prefix}/lib/nnstreamer/decoders/libnnstreamer_decoder_image_labeling.so
 %{_prefix}/lib/nnstreamer/decoders/libnnstreamer_decoder_direct_video.so
+%{_prefix}/lib/nnstreamer/decoders/libnnstreamer_decoder_octet_stream.so
 %{_prefix}/lib/nnstreamer/filters/libnnstreamer_filter_cpp.so
 %{gstlibdir}/libnnstreamer.so
 %{_libdir}/libnnstreamer.so
@@ -1002,10 +1025,19 @@ cp -r result %{buildroot}%{_datadir}/nnstreamer/unittest/
 
 # for snpe
 %if 0%{?snpe_support}
-%files snpe
+# Workaround: Conditionally enable nnstreamer-snpe rpm package
+# when existing actual snpe library (snpe.pc)
+%files snpe -f ext/nnstreamer/tensor_filter/filter_snpe_list
 %manifest nnstreamer.manifest
 %defattr(-,root,root,-)
-%{_prefix}/lib/nnstreamer/filters/libnnstreamer_filter_snpe.so
+%endif
+
+# for trix-engine
+%if 0%{?trix_engine_support}
+%files trix-engine
+%manifest nnstreamer.manifest
+%defattr(-,root,root,-)
+%{_prefix}/lib/nnstreamer/filters/libnnstreamer_filter_trix-engine.so
 %endif
 
 %files devel
@@ -1145,6 +1177,9 @@ cp -r result %{buildroot}%{_datadir}/nnstreamer/unittest/
 %endif
 
 %changelog
+* Tue Sep 28 2021 MyungJoo Ham <myungjoo.ham@samsung.com>
+- Start development of 2.1.0 (2.2.0-RC1)
+
 * Tue Sep 28 2021 MyungJoo Ham <myungjoo.ham@samsung.com>
 - Release of 2.0.0, the new LTS version of 2021.
 

@@ -134,13 +134,15 @@ gst_tensor_time_sync_set_option_data (tensor_time_sync_data * sync);
 /**
  * @brief A function call to decide current timestamp among collected pads based on PTS.
  * It will decide current timestamp according to sync option.
+ * GstMeta is also copied with same sync mode.
  * @return True / False. If EOS, it return TRUE.
  * @param collect Collect pad.
  * @param sync Synchronization Option (NOSYNC, SLOWEST, BASEPAD, END)
  * @param current_time Current time
+ * @param tensors_buf Generated GstBuffer for Collected Buffer
  */
 extern gboolean
-gst_tensor_time_sync_get_current_time (GstCollectPads * collect, tensor_time_sync_data * sync, GstClockTime * current_time);
+gst_tensor_time_sync_get_current_time (GstCollectPads * collect, tensor_time_sync_data * sync, GstClockTime * current_time, GstBuffer * tensors_buf);
 
 /**
  * @brief A function to be called while processing a flushing event.
@@ -163,6 +165,18 @@ gst_tensor_time_sync_flush (GstCollectPads * collect);
  */
 extern gboolean
 gst_tensor_time_sync_buffer_from_collectpad (GstCollectPads * collect, tensor_time_sync_data * sync, GstClockTime current_time, GstBuffer * tensors_buf, GstTensorsConfig * configs, gboolean * is_eos);
+
+/**
+ * @brief Configure gst-buffer with tensors information.
+ * NNStreamer handles single memory chunk as single tensor.
+ * If incoming buffer has invalid memories, separate it and generate new gst-buffer using tensors information.
+ * Note that this function always takes the ownership of input buffer.
+ * @param in input buffer
+ * @param config tensors config structure
+ * @return Newly allocated buffer. Null if failed. Caller should unref the buffer using gst_buffer_unref().
+ */
+extern GstBuffer *
+gst_tensor_buffer_from_config (GstBuffer * in, GstTensorsConfig * config);
 
 /**
  * @brief Get pad caps from tensors config and caps of the peer connected to the pad.

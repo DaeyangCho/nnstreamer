@@ -234,6 +234,14 @@ if tflite2_support_is_available
     tflite2_compile_args += '-DTFLITE_NNAPI_DELEGATE_SUPPORTED'
   endif
 
+  if get_option('tflite2-external-delegate-support')
+    tflite2_compile_args += '-DTFLITE_EXTERNAL_DELEGATE_SUPPORTED'
+  endif
+
+  if get_option('tflite2-xnnpack-delegate-support')
+    tflite2_compile_args += '-DTFLITE_XNNPACK_DELEGATE_SUPPORTED'
+  endif
+
   tflite2_extra_dep = declare_dependency(
     compile_args : tflite2_compile_args
   )
@@ -267,7 +275,7 @@ if pytorch_support_is_available
   nnstreamer_filter_torch_deps = pytorch_support_deps + [glib_dep, gst_dep, nnstreamer_dep]
 
   # pytorch version
-  if pytorch_support_deps[0].version() >= '1.8.0'
+  if pytorch_support_deps[0].version().version_compare('>=1.2.0')
     nnstreamer_filter_torch_deps += declare_dependency(compile_args: ['-DPYTORCH_VER_ATLEAST_1_2_0=1'])
   endif
 
@@ -568,6 +576,7 @@ if get_option('enable-mediapipe')
   )
 endif
 
+run_command('sh', '-c', 'touch filter_snpe_list')
 if snpe_support_is_available
   filter_sub_snpe_sources = ['tensor_filter_snpe.cc']
 
@@ -596,6 +605,7 @@ if snpe_support_is_available
     install: true,
     install_dir: nnstreamer_libdir
   )
+  run_command('sh', '-c', 'echo "%{_prefix}/lib/nnstreamer/filters/libnnstreamer_filter_snpe.so" >> filter_snpe_list')
 endif
 
 if tensorrt_support_is_available
@@ -621,6 +631,13 @@ if tensorrt_support_is_available
     install: true,
     install_dir: nnstreamer_libdir
   )
+endif
+
+if lua_support_is_available
+  if lua_support_deps[0].version().version_compare('>=5.3')
+    message ('tensor-filter::lua does not support Lua >= 5.3, yet. Fix #3531 first.')
+    lua_support_is_available = disabler()
+  endif
 endif
 
 if lua_support_is_available
@@ -671,5 +688,29 @@ if tvm_support_is_available
     install: true,
     install_dir: nnstreamer_libdir
   )
+endif
 
+if trix_engine_support_is_available
+  nnstreamer_filter_trix_engine_deps = trix_engine_support_deps + [glib_dep, gst_dep, nnstreamer_dep]
+
+  filter_sub_trix_engine_sources = ['tensor_filter_trix_engine.cc']
+
+  nnstreamer_filter_trix_engine_sources = []
+  foreach s : filter_sub_trix_engine_sources
+    nnstreamer_filter_trix_engine_sources += join_paths(meson.current_source_dir(), s)
+  endforeach
+
+  shared_library('nnstreamer_filter_trix-engine',
+    nnstreamer_filter_trix_engine_sources,
+    dependencies: nnstreamer_filter_trix_engine_deps,
+    install: true,
+    install_dir: filter_subplugin_install_dir
+  )
+
+  static_library('nnstreamer_filter_trix-engine',
+    nnstreamer_filter_trix_engine_sources,
+    dependencies: nnstreamer_filter_trix_engine_deps,
+    install: true,
+    install_dir: nnstreamer_libdir
+  )
 endif

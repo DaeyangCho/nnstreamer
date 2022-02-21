@@ -8,7 +8,7 @@ ifndef GSTREAMER_ROOT_ANDROID
 $(error GSTREAMER_ROOT_ANDROID is not defined!)
 endif
 
-NNSTREAMER_VERSION  := 2.0.0
+NNSTREAMER_VERSION  := 2.1.0
 NNSTREAMER_VERSION_MAJOR := $(word 1,$(subst ., ,${NNSTREAMER_VERSION}))
 NNSTREAMER_VERSION_MINOR := $(word 2,$(subst ., ,${NNSTREAMER_VERSION}))
 NNSTREAMER_VERSION_MICRO := $(word 3,$(subst ., ,${NNSTREAMER_VERSION}))
@@ -68,6 +68,7 @@ NNSTREAMER_PLUGINS_SRCS := \
     $(NNSTREAMER_GST_HOME)/tensor_if/gsttensorif.c \
     $(NNSTREAMER_GST_HOME)/tensor_rate/gsttensorrate.c \
     $(NNSTREAMER_GST_HOME)/tensor_query/tensor_query_common.c \
+    $(NNSTREAMER_GST_HOME)/tensor_query/tensor_query_hybrid.c \
     $(NNSTREAMER_GST_HOME)/tensor_query/tensor_query_client.c \
     $(NNSTREAMER_GST_HOME)/tensor_query/tensor_query_serversink.c \
     $(NNSTREAMER_GST_HOME)/tensor_query/tensor_query_serversrc.c \
@@ -153,9 +154,21 @@ NNSTREAMER_DECODER_IS_SRCS := \
     $(NNSTREAMER_EXT_HOME)/tensor_decoder/tensordec-imagesegment.c \
     $(NNSTREAMER_EXT_HOME)/tensor_decoder/tensordecutil.c
 
+# decoder octet-stream
+NNSTREAMER_DECODER_OS_SRCS := \
+    $(NNSTREAMER_EXT_HOME)/tensor_decoder/tensordec-octetstream.c \
+    $(NNSTREAMER_EXT_HOME)/tensor_decoder/tensordecutil.c
+
 # gstreamer join element
 NNSTREAMER_JOIN_SRCS := \
     $(NNSTREAMER_ROOT)/gst/join/gstjoin.c
+
+# gstreamer mqtt element
+NNSTREAMER_MQTT_SRCS := \
+    $(NNSTREAMER_ROOT)/gst/mqtt/mqttelements.c \
+    $(NNSTREAMER_ROOT)/gst/mqtt/mqttsink.c \
+    $(NNSTREAMER_ROOT)/gst/mqtt/mqttsrc.c \
+    $(NNSTREAMER_ROOT)/gst/mqtt/ntputil.c
 
 # common features
 NO_AUDIO := false

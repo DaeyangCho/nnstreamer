@@ -132,10 +132,12 @@ _gst_tensor_time_sync_is_eos (GstCollectPads * collect,
 /**
  * @brief A function call to decide current timestamp among collected pads based on PTS.
  * It will decide current timestamp according to sync option.
+ * GstMeta is also copied with same sync mode.
  */
 gboolean
 gst_tensor_time_sync_get_current_time (GstCollectPads * collect,
-    tensor_time_sync_data * sync, GstClockTime * current_time)
+    tensor_time_sync_data * sync, GstClockTime * current_time,
+    GstBuffer * tensors_buf)
 {
   GSList *walk = NULL;
   guint count, empty_pad;
@@ -150,6 +152,7 @@ gst_tensor_time_sync_get_current_time (GstCollectPads * collect,
   while (walk) {
     GstCollectData *data;
     GstBuffer *buf;
+    gboolean need_update = FALSE;
 
     data = (GstCollectData *) walk->data;
     buf = gst_collect_pads_peek (collect, data);
@@ -162,16 +165,20 @@ gst_tensor_time_sync_get_current_time (GstCollectPads * collect,
         case SYNC_SLOWEST:
         case SYNC_REFRESH:
           if (*current_time < GST_BUFFER_PTS (buf))
-            *current_time = GST_BUFFER_PTS (buf);
+            need_update = TRUE;
           break;
         case SYNC_BASEPAD:
           if (count == sync->data_basepad.sink_id)
-            *current_time = GST_BUFFER_PTS (buf);
+            need_update = TRUE;
           break;
         default:
           break;
       }
-
+      if (need_update) {
+        *current_time = GST_BUFFER_PTS (buf);
+        gst_buffer_copy_into (tensors_buf, buf, GST_BUFFER_COPY_METADATA,
+            0, -1);
+      }
       gst_buffer_unref (buf);
     } else {
       empty_pad++;
@@ -275,7 +282,6 @@ gst_tensor_time_sync_buffer_from_collectpad (GstCollectPads * collect,
   guint i, n_mem;
   GstMemory *in_mem[NNS_TENSOR_SIZE_LIMIT];
   tensor_format in_formats[NNS_TENSOR_SIZE_LIMIT];
-  gboolean meta_copied = FALSE;
 
   g_return_val_if_fail (collect != NULL, FALSE);
   g_return_val_if_fail (sync != NULL, FALSE);
@@ -379,6 +385,7 @@ gst_tensor_time_sync_buffer_from_collectpad (GstCollectPads * collect,
     }
 
     if (GST_IS_BUFFER (buf)) {
+      buf = gst_tensor_buffer_from_config (buf, &in_configs);
       n_mem = gst_buffer_n_memory (buf);
 
       /** These are internal logic error. If given inputs are incorrect,
@@ -398,18 +405,6 @@ gst_tensor_time_sync_buffer_from_collectpad (GstCollectPads * collect,
         counting++;
       }
 
-      /**
-       * This is temporal GstMeta policy of the collect pad for tensor query server.
-       * Copy GstMeta of the first buffer to out buffers.
-       * MetaCopy policy should be updated for multiple query clients
-       * to prevent the multiple clients from mixing buffers.
-       * @todo Update the policies based on synchronization polices of mux and merge.
-       */
-      if (!meta_copied) {
-        gst_buffer_copy_into (tensors_buf, buf, GST_BUFFER_COPY_METADATA, 0,
-            -1);
-        meta_copied = TRUE;
-      }
       gst_buffer_unref (buf);
     }
     if (is_empty)
@@ -443,6 +438,121 @@ gst_tensor_time_sync_buffer_from_collectpad (GstCollectPads * collect,
   /* check eos */
   *is_eos = _gst_tensor_time_sync_is_eos (collect, sync, empty_pad);
   return !(*is_eos);
+}
+
+/**
+ * @brief Configure gst-buffer with tensors information.
+ * NNStreamer handles single memory chunk as single tensor.
+ * If incoming buffer has invalid memories, separate it and generate new gst-buffer using tensors information.
+ * Note that this function always takes the ownership of input buffer.
+ * @param in input buffer
+ * @param config tensors config structure
+ * @return Newly allocated buffer. Null if failed. Caller should unref the buffer using gst_buffer_unref().
+ */
+GstBuffer *
+gst_tensor_buffer_from_config (GstBuffer * in, GstTensorsConfig * config)
+{
+  GstBuffer *out = NULL;
+  GstMemory *all = NULL;
+  GstMapInfo map;
+  guint i, num;
+  gsize total, offset;
+  gsize mem_size[NNS_TENSOR_SIZE_LIMIT];
+  gboolean configured = FALSE;
+
+  if (!GST_IS_BUFFER (in)) {
+    nns_loge ("Failed to get tensor buffer, invalid input buffer.");
+    return NULL;
+  }
+
+  if (!gst_tensors_config_validate (config)) {
+    nns_loge ("Failed to get tensor buffer, invalid tensor configuration.");
+    goto error;
+  }
+
+  num = gst_buffer_n_memory (in);
+  total = gst_buffer_get_size (in);
+
+  /* get memory size */
+  if (gst_tensors_config_is_static (config)) {
+    if (num == config->info.num_tensors) {
+      /* Do nothing, pass input buffer. */
+      out = gst_buffer_ref (in);
+      goto done;
+    }
+
+    num = config->info.num_tensors;
+    for (i = 0; i < num; i++)
+      mem_size[i] = gst_tensors_info_get_size (&config->info, i);
+  } else {
+    if (num > 1) {
+      /* Suppose it is already configured. */
+      out = gst_buffer_ref (in);
+      goto done;
+    }
+
+    if (!gst_buffer_map (in, &map, GST_MAP_READ)) {
+      nns_loge ("Failed to get tensor buffer, cannot get the memory info.");
+      goto error;
+    }
+
+    num = 0;
+    offset = 0;
+    while (offset < total) {
+      GstTensorMetaInfo meta;
+      gpointer h = map.data + offset;
+
+      gst_tensor_meta_info_parse_header (&meta, h);
+      mem_size[num] = gst_tensor_meta_info_get_header_size (&meta);
+      mem_size[num] += gst_tensor_meta_info_get_data_size (&meta);
+
+      offset += mem_size[num];
+      num++;
+    }
+
+    gst_buffer_unmap (in, &map);
+
+    if (num == 1) {
+      /* Do nothing, pass input buffer. */
+      out = gst_buffer_ref (in);
+      goto done;
+    }
+  }
+
+  /* configure output buffer */
+  out = gst_buffer_new ();
+  all = gst_buffer_get_all_memory (in);
+  offset = 0;
+
+  for (i = 0; i < num; i++) {
+    /* invalid memory size */
+    if (offset + mem_size[i] > total) {
+      nns_loge ("Failed to get tensor buffer, data size is mismatched.");
+      goto error;
+    }
+
+    gst_buffer_append_memory (out, gst_memory_share (all, offset, mem_size[i]));
+    offset += mem_size[i];
+  }
+
+  gst_buffer_copy_into (out, in, GST_BUFFER_COPY_METADATA, 0, -1);
+
+done:
+  configured = TRUE;
+error:
+  gst_buffer_unref (in);
+
+  if (all)
+    gst_memory_unref (all);
+
+  if (!configured) {
+    if (out) {
+      gst_buffer_unref (out);
+      out = NULL;
+    }
+  }
+
+  return out;
 }
 
 /**

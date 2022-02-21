@@ -101,14 +101,6 @@ save_png_to_file (bitmap_t * bitmap, const char *path)
   int depth = 8;
   int color_type;
 
-  if (bitmap->color_format == GRAY8) {
-    pixel_size = 1;
-    color_type = PNG_COLOR_TYPE_GRAY;
-  } else {
-    pixel_size = 3;
-    color_type = PNG_COLOR_TYPE_RGB;
-  }
-
   fp = fopen (path, "wb");
   if (!fp) {
     goto fopen_failed;
@@ -132,6 +124,13 @@ save_png_to_file (bitmap_t * bitmap, const char *path)
   }
 
   /** Set image attributes. */
+  if (bitmap->color_format == GRAY8) {
+    pixel_size = 1;
+    color_type = PNG_COLOR_TYPE_GRAY;
+  } else {
+    pixel_size = 3;
+    color_type = PNG_COLOR_TYPE_RGB;
+  }
 
   png_set_IHDR (png_ptr,
       info_ptr,
@@ -255,6 +254,7 @@ main (int argc, char *argv[])
   bmp.height = height;
 
   bmp.pixels = calloc (bmp.width * bmp.height, sizeof (pixel_t));
+  g_assert (bmp.pixels != NULL);
 
   for (y = (int) height - 1; y >= 0; y--) {
     for (x = 0; x < (int) width; x++) {

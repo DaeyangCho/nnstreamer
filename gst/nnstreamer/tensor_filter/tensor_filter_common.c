@@ -538,9 +538,6 @@ gst_tensor_filter_properties_init (GstTensorFilterProperties * prop)
   /* init null */
   memset (prop, 0, sizeof (GstTensorFilterProperties));
 
-  /* set default value */
-  prop->fwname = g_strdup ("auto");
-
   gst_tensors_info_init (&prop->input_meta);
   gst_tensors_layout_init (prop->input_layout);
   gst_tensors_rank_init (prop->input_ranks);
@@ -1010,6 +1007,9 @@ gst_tensor_filter_common_init_property (GstTensorFilterPrivate * priv)
   gst_tensor_filter_properties_init (&priv->prop);
   gst_tensor_filter_framework_info_init (&priv->info);
   gst_tensor_filter_statistics_init (&priv->stat);
+
+  /* set default framework 'auto' */
+  priv->prop.fwname = g_strdup ("auto");
 
   /* init internal properties */
   priv->silent = TRUE;
@@ -2396,6 +2396,8 @@ gst_tensor_filter_common_open_fw (GstTensorFilterPrivate * priv)
   int run_without_model = 0;
 
   if (!priv->prop.fw_opened && priv->fw) {
+    gint64 start_time, end_time;
+    start_time = g_get_monotonic_time ();
     if (priv->fw->open) {
       /* at least one model should be configured before opening fw */
       if (GST_TF_FW_V0 (priv->fw)) {
@@ -2424,6 +2426,14 @@ gst_tensor_filter_common_open_fw (GstTensorFilterPrivate * priv)
       }
     } else {
       priv->prop.fw_opened = TRUE;
+    }
+
+    end_time = g_get_monotonic_time ();
+    if (priv->prop.fw_opened == TRUE &&
+        priv->prop.fwname && priv->prop.model_files) {
+      ml_logi ("Filter %s with model file %s is opened. It took %"
+          G_GINT64_FORMAT " us", priv->prop.fwname, priv->prop.model_files[0],
+          end_time - start_time);
     }
   }
 }
@@ -2762,9 +2772,9 @@ parse_accl_hw_fill (parse_accl_args accl_args)
 static GType
 accl_hw_get_type (void)
 {
-  static volatile gsize g_accl_hw_type_id__volatile = 0;
+  static gsize g_accl_hw_type_id_store = 0;
 
-  if (g_once_init_enter (&g_accl_hw_type_id__volatile)) {
+  if (g_once_init_enter (&g_accl_hw_type_id_store)) {
     static const GEnumValue values[] = {
       {ACCL_NONE, ACCL_NONE_STR, ACCL_NONE_STR},
       {ACCL_DEFAULT, ACCL_DEFAULT_STR, ACCL_DEFAULT_STR},
@@ -2788,10 +2798,10 @@ accl_hw_get_type (void)
 
     GType g_accl_hw_type_id =
         g_enum_register_static (g_intern_static_string ("accl_hw"), values);
-    g_once_init_leave (&g_accl_hw_type_id__volatile, g_accl_hw_type_id);
+    g_once_init_leave (&g_accl_hw_type_id_store, g_accl_hw_type_id);
   }
 
-  return g_accl_hw_type_id__volatile;
+  return g_accl_hw_type_id_store;
 }
 
 /**

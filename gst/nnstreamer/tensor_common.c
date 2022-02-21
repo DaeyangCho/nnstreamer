@@ -274,6 +274,9 @@ gst_tensor_info_validate (const GstTensorInfo * info)
   g_return_val_if_fail (info != NULL, FALSE);
 
   if (info->type == _NNS_END) {
+    nns_logd ("Failed to validate tensor info. type: %s. "
+        "Please specify tensor type. e.g., type=uint8 ",
+        GST_STR_NULL (gst_tensor_get_type_string (info->type)));
     return FALSE;
   }
 
@@ -295,11 +298,20 @@ gst_tensor_info_is_equal (const GstTensorInfo * i1, const GstTensorInfo * i2)
   }
 
   if (i1->type != i2->type) {
+    nns_logd ("Tensor info is not equal. Given tensor types %s vs %s",
+        GST_STR_NULL (gst_tensor_get_type_string (i1->type)),
+        GST_STR_NULL (gst_tensor_get_type_string (i2->type)));
     return FALSE;
   }
 
   for (i = 0; i < NNS_TENSOR_RANK_LIMIT; i++) {
     if (i1->dimension[i] != i2->dimension[i]) {
+      gchar *dim_str1 = gst_tensor_get_dimension_string (i1->dimension);
+      gchar *dim_str2 = gst_tensor_get_dimension_string (i2->dimension);
+      nns_logd ("Tensor info is not equal. Given tensor dimensions %s vs %s",
+          dim_str1, dim_str2);
+      g_free (dim_str1);
+      g_free (dim_str2);
       return FALSE;
     }
   }
@@ -461,6 +473,8 @@ gst_tensors_info_validate (const GstTensorsInfo * info)
   g_return_val_if_fail (info != NULL, FALSE);
 
   if (info->num_tensors < 1) {
+    nns_logd ("Failed to validate tensors info. the number of tensors: %d. "
+        "the number of tensors should be greater than 0.", info->num_tensors);
     return FALSE;
   }
 
@@ -485,7 +499,13 @@ gst_tensors_info_is_equal (const GstTensorsInfo * i1, const GstTensorsInfo * i2)
   g_return_val_if_fail (i1 != NULL, FALSE);
   g_return_val_if_fail (i2 != NULL, FALSE);
 
-  if (i1->num_tensors != i2->num_tensors || i1->num_tensors == 0) {
+  if (!gst_tensors_info_validate (i1) || !gst_tensors_info_validate (i2)) {
+    return FALSE;
+  }
+
+  if (i1->num_tensors != i2->num_tensors) {
+    nns_logd ("Tensors info is not equal. the number of tensors: %d vs %d. ",
+        i1->num_tensors, i2->num_tensors);
     return FALSE;
   }
 
@@ -794,11 +814,18 @@ gst_tensors_config_validate (const GstTensorsConfig * config)
 
   /* framerate (numerator >= 0 and denominator > 0) */
   if (config->rate_n < 0 || config->rate_d <= 0) {
+    nns_logd ("Failed to validate tensors config. framerate: %d/%d. "
+        "framerate should be numerator >= 0 and denominator > 0.",
+        config->rate_n, config->rate_d);
     return FALSE;
   }
 
   /* tensor stream format */
   if (config->format >= _NNS_TENSOR_FORMAT_END) {
+    nns_logd ("Failed to validate tensors config. format: %s. "
+        "format should be one of %s.",
+        GST_STR_NULL (gst_tensor_get_format_string (config->format)),
+        GST_TENSOR_FORMAT_ALL);
     return FALSE;
   }
 
@@ -821,16 +848,21 @@ gst_tensors_config_is_equal (const GstTensorsConfig * c1,
   g_return_val_if_fail (c1 != NULL, FALSE);
   g_return_val_if_fail (c2 != NULL, FALSE);
 
-  if (c1->rate_d == 0 || c2->rate_d == 0) {
+  if (!gst_tensors_config_validate (c1) || !gst_tensors_config_validate (c2)) {
     return FALSE;
   }
 
   if (gst_util_fraction_compare (c1->rate_n, c1->rate_d, c2->rate_n,
           c2->rate_d) != 0) {
+    nns_logd ("Tensors config is not equal. framerate: %d/%d vs %d/%d.",
+        c1->rate_n, c1->rate_d, c2->rate_n, c2->rate_d);
     return FALSE;
   }
 
   if (c1->format != c2->format || c1->format == _NNS_TENSOR_FORMAT_END) {
+    nns_logd ("Tensors config is not equal. format: %s vs %s ",
+        GST_STR_NULL (gst_tensor_get_format_string (c1->format)),
+        GST_STR_NULL (gst_tensor_get_format_string (c2->format)));
     return FALSE;
   }
 
@@ -898,8 +930,9 @@ gst_tensors_config_from_structure (GstTensorsConfig * config,
       format = gst_tensor_get_format (format_str);
 
       if (format == _NNS_TENSOR_FORMAT_END) {
-        GST_WARNING ("Invalid format %s, it should be one of %s.",
-            format_str, GST_TENSOR_FORMAT_ALL);
+        GST_INFO
+            ("Invalid format %s, it should be one of %s. Suppose tensor format is static.",
+            GST_STR_NULL (format_str), GST_TENSOR_FORMAT_ALL);
       } else {
         config->format = format;
       }
@@ -1211,6 +1244,11 @@ gst_tensor_dimension_is_valid (const tensor_dim dim)
 
   for (i = 0; i < NNS_TENSOR_RANK_LIMIT; ++i) {
     if (dim[i] == 0) {
+      gchar *dim_str = gst_tensor_get_dimension_string (dim);
+      nns_logd ("Failed to validate tensor dimension. Given dimension: %s"
+          "The dimension string should be in the form of d1:d2:d3:d4, "
+          "d1:d2:d3, d1:d2, or d1. Here, dN is a positive integer.", dim_str);
+      g_free (dim_str);
       return FALSE;
     }
   }
@@ -1537,22 +1575,36 @@ gst_tensor_meta_info_validate (GstTensorMetaInfo * meta)
   g_return_val_if_fail (meta != NULL, FALSE);
   g_return_val_if_fail (GST_TENSOR_META_VERSION_VALID (meta->version), FALSE);
 
-  if (meta->type >= _NNS_END)
+  if (meta->type >= _NNS_END) {
+    nns_logd ("Failed to validate tensor meta info. type: %s. ",
+        GST_STR_NULL (gst_tensor_get_type_string (meta->type)));
     return FALSE;
+  }
 
   for (i = 0; i < NNS_TENSOR_META_RANK_LIMIT; i++) {
     if (meta->dimension[i] == 0) {
-      if (i == 0)
+      if (i == 0) {
+        gchar *dim_str = gst_tensor_get_dimension_string (meta->dimension);
+        nns_logd ("Failed to validate tensor meta info. Given dimension: %s",
+            dim_str);
+        g_free (dim_str);
         return FALSE;
+      }
       break;
     }
   }
 
-  if (meta->format >= _NNS_TENSOR_FORMAT_END)
+  if (meta->format >= _NNS_TENSOR_FORMAT_END) {
+    nns_logd ("Failed to validate tensors meta info. format: %s. ",
+        GST_STR_NULL (gst_tensor_get_format_string (meta->format)));
     return FALSE;
+  }
 
-  if (meta->media_type > _NNS_TENSOR)
+  if (meta->media_type > _NNS_TENSOR) {
+    nns_logd ("Failed to validate tensor meta info. invalid media type: %d.",
+        meta->media_type);
     return FALSE;
+  }
 
   return TRUE;
 }
@@ -1797,85 +1849,6 @@ find_key_strv (const gchar ** strv, const gchar * key)
   }
 
   return -1;                    /* Not Found */
-}
-
-/**
- * @brief Replaces string.
- * This function deallocates the input source string.
- * @param[in] source The input string. This will be freed when returning the replaced string.
- * @param[in] what The string to search for.
- * @param[in] to The string to be replaced.
- * @param[in] delimiters The characters which specify the place to split the string. Set NULL to replace all matched string.
- * @param[out] count The count of replaced. Set NULL if it is unnecessary.
- * @return Newly allocated string. The returned string should be freed with g_free().
- */
-gchar *
-replace_string (gchar * source, const gchar * what, const gchar * to,
-    const gchar * delimiters, guint * count)
-{
-  GString *builder;
-  gchar *start, *pos, *result;
-  guint changed = 0;
-  gsize len;
-
-  g_return_val_if_fail (source, NULL);
-  g_return_val_if_fail (what && to, source);
-
-  len = strlen (what);
-  start = source;
-
-  builder = g_string_new (NULL);
-  while ((pos = g_strstr_len (start, -1, what)) != NULL) {
-    gboolean skip = FALSE;
-
-    if (delimiters) {
-      const gchar *s;
-      gchar *prev, *next;
-      gboolean prev_split, next_split;
-
-      prev = next = NULL;
-      prev_split = next_split = FALSE;
-
-      if (pos != source)
-        prev = pos - 1;
-      if (*(pos + len) != '\0')
-        next = pos + len;
-
-      for (s = delimiters; *s != '\0'; ++s) {
-        if (!prev || *s == *prev)
-          prev_split = TRUE;
-        if (!next || *s == *next)
-          next_split = TRUE;
-        if (prev_split && next_split)
-          break;
-      }
-
-      if (!prev_split || !next_split)
-        skip = TRUE;
-    }
-
-    builder = g_string_append_len (builder, start, pos - start);
-
-    /* replace string if found */
-    if (skip)
-      builder = g_string_append_len (builder, pos, len);
-    else
-      builder = g_string_append (builder, to);
-
-    start = pos + len;
-    if (!skip)
-      changed++;
-  }
-
-  /* append remains */
-  builder = g_string_append (builder, start);
-  result = g_string_free (builder, FALSE);
-
-  if (count)
-    *count = changed;
-
-  g_free (source);
-  return result;
 }
 
 /**

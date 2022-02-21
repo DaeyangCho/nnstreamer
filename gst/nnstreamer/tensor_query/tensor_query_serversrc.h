@@ -18,6 +18,7 @@
 #include "tensor_query_common.h"
 #include <nnstreamer_util.h>
 #include <tensor_meta.h>
+#include "tensor_query_hybrid.h"
 
 G_BEGIN_DECLS
 
@@ -42,14 +43,22 @@ typedef struct _GstTensorQueryServerSrcClass GstTensorQueryServerSrcClass;
 struct _GstTensorQueryServerSrc
 {
   GstPushSrc element; /* parent object */
+  guint src_id;
+  gboolean configured;
 
   guint16 port;
   gchar *host;
   TensorQueryProtocol protocol;
   guint timeout;
 
-  GstTensorsConfig src_config;
+  /* Query-hybrid feature */
+  gchar *operation; /**< Main operation such as 'object_detection' or 'image_segmentation' */
+  query_hybrid_info_s hybrid_info;
+  gchar *broker_host;
+  guint16 broker_port;
+
   query_server_handle server_data; /* server data passed to common functions */
+  query_server_info_handle server_info_h;
 };
 
 /**

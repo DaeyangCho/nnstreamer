@@ -28,7 +28,8 @@
  * @bug         No known bugs except for NYI items
  *
  * option1: Decoder mode of bounding box.
- *          Available: mobilenet-ssd (single shot multibox detector with priors.)
+ *          Available: yolov5
+ *                     mobilenet-ssd (single shot multibox detector with priors.)
  *                     mobilenet-ssd-postprocess
  *                     ov-person-detection
  *                     tf-ssd (deprecated, recommend to use mobilenet-ssd-postprocess)
@@ -61,7 +62,7 @@
  *            the tensor-dec how to interpret the given tensor inputs.
  *            The first 4 numbers separated by colon, ':', designate which
  *            are location:class:score:number of the tensors.
- *            The last number separted by comma, ',' from the first 4 numbers
+ *            The last number separated by comma, ',' from the first 4 numbers
  *            designate the threshold in percent.
  *            In other words, "option3=%i:%i:%i:%i,%i".
  * option4: Video Output Dimension (WIDTH:HEIGHT)
@@ -107,6 +108,9 @@ extern uint8_t rasters[][13];
 #define OV_PERSON_DETECTION_MAX_TENSORS         (1U)
 #define OV_PERSON_DETECTION_SIZE_DETECTION_DESC (7)
 #define OV_PERSON_DETECTION_CONF_THRESHOLD      (0.8)
+#define YOLOV5_DETECTION_NUM_INFO               (5)
+#define YOLOV5_DETECTION_CONF_THRESHOLD         (0.3)
+#define YOLOV5_DETECTION_IOU_THRESHOLD          (0.6)
 #define PIXEL_VALUE                             (0xFF0000FF)    /* RED 100% in RGBA */
 
 /**
@@ -129,6 +133,8 @@ typedef enum
   /* the modes started with 'OLDNAME_' is for backward compatibility. */
   OLDNAME_MOBILENET_SSD_BOUNDING_BOX = 4,
   OLDNAME_MOBILENET_SSD_PP_BOUNDING_BOX = 5,
+
+  YOLOV5_BOUNDING_BOX = 6,
 
   BOUNDING_BOX_UNKNOWN,
 } bounding_box_modes;
@@ -155,6 +161,7 @@ static const char *bb_modes[] = {
   [OV_FACE_DETECTION_BOUNDING_BOX] = "ov-face-detection",
   [OLDNAME_MOBILENET_SSD_BOUNDING_BOX] = "tflite-ssd",
   [OLDNAME_MOBILENET_SSD_PP_BOUNDING_BOX] = "tf-ssd",
+  [YOLOV5_BOUNDING_BOX] = "yolov5",
   NULL,
 };
 
@@ -188,7 +195,7 @@ typedef struct
 } properties_MOBILENET_SSD_PP;
 
 /**
- * @brief Data structure for boundig box info.
+ * @brief Data structure for bounding box info.
  */
 typedef struct
 {
@@ -800,6 +807,21 @@ bb_getOutCaps (void **pdata, const GstTensorsConfig * config)
     g_return_val_if_fail (dim[1] == OV_PERSON_DETECTION_MAX, NULL);
     for (i = 2; i < NNS_TENSOR_RANK_LIMIT; ++i)
       g_return_val_if_fail (dim[i] == 1, NULL);
+  } else if (data->mode == YOLOV5_BOUNDING_BOX) {
+    const guint *dim = config->info.info[0].dimension;
+    if (!_check_tensors (config, 1U))
+      return NULL;
+
+    data->max_detection = (
+        (data->i_width / 32) * (data->i_height / 32) +
+        (data->i_width / 16) * (data->i_height / 16) +
+        (data->i_width / 8) * (data->i_height / 8)) * 3;
+
+    g_return_val_if_fail (dim[0] ==
+        (data->labeldata.total_labels + YOLOV5_DETECTION_NUM_INFO), NULL);
+    g_return_val_if_fail (dim[1] == data->max_detection, NULL);
+    for (i = 2; i < NNS_TENSOR_RANK_LIMIT; ++i)
+      g_return_val_if_fail (dim[i] == 1, NULL);
   }
 
   str = g_strdup_printf ("video/x-raw, format = RGBA, " /* Use alpha channel to make the background transparent */
@@ -955,7 +977,7 @@ iou (detectedObject * a, detectedObject * b)
 }
 
 /**
- * @brief Apply NMS to the given results (obejcts[MOBILENET_SSD_DETECTION_MAX])
+ * @brief Apply NMS to the given results (objects[MOBILENET_SSD_DETECTION_MAX])
  * @param[in/out] results The results to be filtered with nms
  */
 static void
@@ -1091,9 +1113,9 @@ nms (GArray * results, gfloat threshold)
   break
 
 /**
- * @brief Draw with the given results (obejcts[MOBILENET_SSD_DETECTION_MAX]) to the output buffer
+ * @brief Draw with the given results (objects[MOBILENET_SSD_DETECTION_MAX]) to the output buffer
  * @param[out] out_info The output buffer (RGBA plain)
- * @param[in] bdata The bouding-box internal data.
+ * @param[in] bdata The bounding-box internal data.
  * @param[in] results The final results to be drawn.
  */
 static void
@@ -1303,6 +1325,55 @@ bb_decode (void **pdata, const GstTensorsConfig * config,
       default:
         g_assert (0);
     }
+  } else if (bdata->mode == YOLOV5_BOUNDING_BOX) {
+    int bIdx, numTotalBox;
+    int cIdx, numTotalClass, cStartIdx, cIdxMax;
+    float *boxinput;
+
+    numTotalBox = bdata->max_detection;
+    numTotalClass = bdata->labeldata.total_labels;
+    cStartIdx = YOLOV5_DETECTION_NUM_INFO;
+    cIdxMax = numTotalClass + cStartIdx;
+
+    boxinput = (float *) input[0].data; // boxinput[1][1][numTotalBox][cIdxMax]
+
+    /** Only support for float type model */
+    g_assert (config->info.info[0].type == _NNS_FLOAT32);
+
+    results = g_array_sized_new (FALSE, TRUE, sizeof (detectedObject), numTotalBox);
+    for (bIdx = 0; bIdx < numTotalBox; ++bIdx) {
+      float maxClassConfVal = -INFINITY;
+      int maxClassIdx = -1;
+      for (cIdx = cStartIdx; cIdx < cIdxMax; ++cIdx) {
+        if (boxinput[bIdx * cIdxMax + cIdx] > maxClassConfVal) {
+          maxClassConfVal = boxinput[bIdx * cIdxMax + cIdx];
+          maxClassIdx = cIdx;
+        }
+      }
+
+      if (maxClassConfVal * boxinput[bIdx * cIdxMax + 4] >
+          YOLOV5_DETECTION_CONF_THRESHOLD) {
+        detectedObject object;
+        float cx, cy, w, h;
+        cx = boxinput[bIdx * cIdxMax + 0] * (float) bdata->i_width;
+        cy = boxinput[bIdx * cIdxMax + 1] * (float) bdata->i_height;
+        w = boxinput[bIdx * cIdxMax + 2] * (float) bdata->i_width;
+        h = boxinput[bIdx * cIdxMax + 3] * (float) bdata->i_height;
+
+        object.x = (int) (MAX (0.f, (cx - w / 2.f)));
+        object.y = (int) (MAX (0.f, (cy - h / 2.f)));
+        object.width = (int) (MIN ((float) bdata->i_width, w));
+        object.height = (int) (MIN ((float) bdata->i_height, h));
+
+        object.prob = maxClassConfVal * boxinput[bIdx * cIdxMax + 4];
+        object.class_id = maxClassIdx - YOLOV5_DETECTION_NUM_INFO;
+        object.valid = TRUE;
+        g_array_append_val (results, object);
+      }
+    }
+
+    nms (results, YOLOV5_DETECTION_IOU_THRESHOLD);
+
   } else {
     GST_ERROR ("Failed to get output buffer, unknown mode %d.", bdata->mode);
     goto error_unmap;

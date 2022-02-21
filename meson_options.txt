@@ -20,6 +20,8 @@ option('grpc-support', type: 'feature', value: 'auto')
 option('lua-support', type: 'feature', value: 'auto')
 option('mqtt-support', type: 'feature', value: 'auto')
 option('tvm-support', type: 'feature', value: 'auto')
+option('query-hybrid-support', type: 'feature', value: 'auto')
+option('trix-engine-support', type: 'feature', value: 'auto')
 
 # booleans & other options
 option('enable-test', type: 'boolean', value: true)
@@ -27,13 +29,15 @@ option('install-test', type: 'boolean', value: false)
 option('enable-pytorch-use-gpu', type: 'boolean', value: false) # default value, can be specified at run time
 option('tflite2-gpu-delegate-support', type: 'boolean', value: 'false')
 option('tflite2-nnapi-delegate-support', type: 'boolean', value: 'false')
+option('tflite2-external-delegate-support', type: 'boolean', value: 'false')
+option('tflite2-xnnpack-delegate-support', type: 'boolean', value: 'false')
 option('enable-mediapipe', type: 'boolean', value: false)
 option('enable-env-var', type: 'boolean', value: true)
 option('enable-symbolic-link', type: 'boolean', value: true)
 option('enable-tizen', type: 'boolean', value: false)
 option('tizen-version-major', type: 'integer', min : 4, max : 9999, value: 9999) # 9999 means "not Tizen"
 option('enable-element-restriction', type: 'boolean', value: false) # true to restrict gst-elements in api
-option('restricted-elements', type: 'string', value: '')
+option('allowed-elements', type: 'string', value: '')
 option('enable-cppfilter', type: 'boolean', value: true) # Allows C++ custom filters
 option('enable-filter-cpp-class', type: 'boolean', value: true) # Allows to accept C++ classes as filter subplugin implementation.
 option('enable-tizen-sensor', type: 'boolean', value: false)
@@ -49,3 +53,9 @@ option('trix-engine-alias', type: 'string', value: 'srnpu', description: 'The al
 # Utilities
 option('enable-nnstreamer-check', type: 'boolean', value: true)
 option('enable-pbtxt-converter', type: 'boolean', value: true)
+
+# Install Paths
+option('subplugindir', type: 'string', value: '')
+
+# Extra configuration
+option('extra_config_path', type: 'string', value: '')

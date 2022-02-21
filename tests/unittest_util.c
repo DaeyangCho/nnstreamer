@@ -10,6 +10,8 @@
  */
 #include <gst/gst.h>
 #include <glib/gstdio.h>
+#include <nnstreamer_log.h>
+#include <string.h>
 #include "unittest_util.h"
 
 /**
@@ -41,7 +43,7 @@ setPipelineStateSync (GstElement * pipeline, GstState state,
 
 /**
  * @brief Get temp file name.
- * @return file name (should free string with g_free)
+ * @return file name (should finalize it with g_remove() and g_free() after use)
  */
 gchar *
 getTempFilename (void)
@@ -65,9 +67,6 @@ getTempFilename (void)
   }
 
   g_close (fd, NULL);
-  if (g_remove (tmp_fn) != 0) {
-    _print_log ("failed to remove temp file %s", tmp_fn);
-  }
 
   return tmp_fn;
 }
@@ -92,3 +91,120 @@ wait_pipeline_process_buffers (const guint * data_received,
   }
   return TRUE;
 }
+
+/**
+ * @brief Replaces string.
+ * This function deallocates the input source string.
+ * @param[in] source The input string. This will be freed when returning the replaced string.
+ * @param[in] what The string to search for.
+ * @param[in] to The string to be replaced.
+ * @param[in] delimiters The characters which specify the place to split the string. Set NULL to replace all matched string.
+ * @param[out] count The count of replaced. Set NULL if it is unnecessary.
+ * @return Newly allocated string. The returned string should be freed with g_free().
+ */
+gchar *
+replace_string (gchar * source, const gchar * what, const gchar * to,
+    const gchar * delimiters, guint * count)
+{
+  GString *builder;
+  gchar *start, *pos, *result;
+  guint changed = 0;
+  gsize len;
+
+  g_return_val_if_fail (source, NULL);
+  g_return_val_if_fail (what && to, source);
+
+  len = strlen (what);
+  start = source;
+
+  builder = g_string_new (NULL);
+  while ((pos = g_strstr_len (start, -1, what)) != NULL) {
+    gboolean skip = FALSE;
+
+    if (delimiters) {
+      const gchar *s;
+      gchar *prev, *next;
+      gboolean prev_split, next_split;
+
+      prev = next = NULL;
+      prev_split = next_split = FALSE;
+
+      if (pos != source)
+        prev = pos - 1;
+      if (*(pos + len) != '\0')
+        next = pos + len;
+
+      for (s = delimiters; *s != '\0'; ++s) {
+        if (!prev || *s == *prev)
+          prev_split = TRUE;
+        if (!next || *s == *next)
+          next_split = TRUE;
+        if (prev_split && next_split)
+          break;
+      }
+
+      if (!prev_split || !next_split)
+        skip = TRUE;
+    }
+
+    builder = g_string_append_len (builder, start, pos - start);
+
+    /* replace string if found */
+    if (skip)
+      builder = g_string_append_len (builder, pos, len);
+    else
+      builder = g_string_append (builder, to);
+
+    start = pos + len;
+    if (!skip)
+      changed++;
+  }
+
+  /* append remains */
+  builder = g_string_append (builder, start);
+  result = g_string_free (builder, FALSE);
+
+  if (count)
+    *count = changed;
+
+  g_free (source);
+  return result;
+}
+
+#ifdef FAKEDLOG
+/**
+ * @brief Hijack dlog Tizen infra for unit testing to force printing out.
+ * @bug The original dlog_print returns the number of bytes printed.
+ *      This returns 0.
+ */
+int
+dlog_print (log_priority prio, const char *tag, const char *fmt, ...)
+{
+  va_list arg_ptr;
+  GLogLevelFlags level;
+  switch (prio) {
+    case DLOG_FATAL:
+      level = G_LOG_LEVEL_ERROR;
+      break;
+    case DLOG_ERROR:
+      level = G_LOG_LEVEL_CRITICAL;
+      break;
+    case DLOG_WARN:
+      level = G_LOG_LEVEL_WARNING;
+      break;
+    case DLOG_INFO:
+      level = G_LOG_LEVEL_INFO;
+      break;
+    case DLOG_DEBUG:
+      level = G_LOG_LEVEL_DEBUG;
+      break;
+    default:
+      level = G_LOG_LEVEL_DEBUG;
+  }
+  va_start (arg_ptr, fmt);
+  g_logv (tag, level, fmt, arg_ptr);
+  va_end (arg_ptr);
+
+  return 0;
+}
+#endif

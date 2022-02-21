@@ -2,7 +2,7 @@
 # If you are using Tizen 5.0+ or Ubuntu/Bionix+, you don't need to mind meson version.
 
 project('nnstreamer', 'c', 'cpp',
-  version: '2.0.0',
+  version: '2.1.0',
   license: ['LGPL-2.1'],
   meson_version: '>=0.50.0',
   default_options: [
@@ -44,6 +44,8 @@ endif
 
 # Define warning flags for c and cpp
 warning_flags = [
+  '-Wmissing-braces',
+  '-Wmaybe-uninitialized',
   '-Wwrite-strings',
   '-Wformat',
   '-Wformat-nonliteral',
@@ -96,7 +98,11 @@ nnstreamer_inidir = join_paths(nnstreamer_prefix, get_option('sysconfdir'))
 plugins_install_dir = join_paths(nnstreamer_libdir, 'gstreamer-' + gst_api_verision)
 
 # nnstreamer sub-plugins path
-subplugin_install_prefix = join_paths(nnstreamer_prefix, 'lib', 'nnstreamer')
+if get_option('subplugindir') == ''
+  subplugin_install_prefix = join_paths(nnstreamer_prefix, get_option('libdir'), 'nnstreamer')
+else
+  subplugin_install_prefix = get_option('subplugindir')
+endif
 filter_subplugin_install_dir = join_paths(subplugin_install_prefix, 'filters')
 decoder_subplugin_install_dir = join_paths(subplugin_install_prefix, 'decoders')
 customfilter_install_dir = join_paths(subplugin_install_prefix, 'customfilters')
@@ -127,6 +133,9 @@ add_project_arguments('-DNNSTREAMER_CONF_FILE="' + join_paths(nnstreamer_inidir,
 
 # Dependencies
 glib_dep = dependency('glib-2.0')
+if glib_dep.version().version_compare('>= 2.68.0')
+  add_project_arguments('-DGLIB_USE_G_MEMDUP2', language: ['c', 'cpp'])
+endif
 gobject_dep = dependency('gobject-2.0')
 gmodule_dep = dependency('gmodule-2.0')
 gio_dep = dependency('gio-2.0')
@@ -373,6 +382,14 @@ features = {
   'tvm-support': {
     'target': 'tvm_runtime',
     'project_args': { 'ENABLE_TVM' : 1 }
+  },
+  'query-hybrid-support': {
+    'target': 'nnsquery',
+    'project_args': { 'ENABLE_QUERY_HYBRID': 1 }
+  },
+  'trix-engine-support': {
+    'target': 'npu-engine',
+    'project_args': { 'ENABLE_TRIX_ENGINE' : 1 }
   }
 }
 
@@ -519,11 +536,18 @@ restriction_config = ''
 if get_option('enable-element-restriction')
   restriction_config = '''[element-restriction]
 enable_element_restriction=True
-restricted_elements=''' + get_option('restricted-elements')
+allowed_elements=''' + get_option('allowed-elements')
 endif
 
 nnstreamer_install_conf.set('ELEMENT_RESTRICTION_CONFIG', restriction_config)
 nnstreamer_install_conf.set('TEST_TEMPLATE_DIR', unittest_base_dir) # TEST_TEMPLATE_DIR will be empty if `install-test` is false
+
+# Extra configuration
+extra_config_path = ''
+if get_option('extra_config_path') != ''
+  extra_config_path = 'extra_config_path=' + get_option('extra_config_path')
+endif
+nnstreamer_install_conf.set('EXTRA_CONFIG_PATH', extra_config_path)
 
 # Install .ini
 configure_file(input: 'nnstreamer.ini.in', output: 'nnstreamer.ini',
@@ -540,6 +564,12 @@ configure_file(input: 'nnstreamer-internal.pc.in', output: 'nnstreamer-internal.
   install_dir: join_paths(nnstreamer_libdir, 'pkgconfig'),
   configuration: nnstreamer_install_conf
 )
+
+# Check whether mqtt broker is running or not.
+check_mosquitto = run_command ('bash', './tests/check_broker.sh').stdout()
+if check_mosquitto != ''
+  add_project_arguments('-D__MQTT_BROKER_ENABLED__=1', language: ['c', 'cpp'])
+endif
 
 # Build nnstreamer (common, plugins)
 subdir('gst')
@@ -566,6 +596,7 @@ if get_option('enable-test')
   nnstreamer_test_conf.set('ENABLE_ENV_VAR', true)
   nnstreamer_test_conf.set('ENABLE_SYMBOLIC_LINK', false)
   nnstreamer_test_conf.set('TORCH_USE_GPU', false)
+  nnstreamer_test_conf.set('EXTRA_CONFIG_PATH', '')
   nnstreamer_test_conf.set('ELEMENT_RESTRICTION_CONFIG', '')
 
   configure_file(input: 'nnstreamer.ini.in', output: 'nnstreamer-test.ini',

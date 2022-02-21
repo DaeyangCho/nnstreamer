@@ -5,11 +5,12 @@ mqtt_plugin_srcs = [
   join_paths(meson.current_source_dir(), 'mqttsink.c'),
   join_paths(meson.current_source_dir(), 'mqttsrc.c'),
   join_paths(meson.current_source_dir(), 'mqttelements.c'),
+  join_paths(meson.current_source_dir(), 'ntputil.c'),
 ]
 
 gstmqtt_shared = shared_library('gstmqtt',
   mqtt_plugin_srcs,
-  dependencies: [glib_dep, gst_dep, gst_base_dep, pahomqttc_dep],
+  dependencies: [glib_dep, gst_dep, gst_base_dep, thread_dep, pahomqttc_dep],
   install: true,
   include_directories: nns_util_inc,
   install_dir: plugins_install_dir
