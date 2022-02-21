@@ -31,7 +31,7 @@ def load_image(image_path, x32=False):
 
 def test(args):
     device = args.device
-    print(f"devide: {device}")
+    print(f"device: {device}")
     
     net = Generator()
     net.load_state_dict(torch.load(args.checkpoint, map_location="cpu"))

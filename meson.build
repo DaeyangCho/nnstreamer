@@ -217,6 +217,7 @@ cudart_dep = dependency('', required: false)
 if not get_option('tensorrt-support').disabled()
   # check available cuda versions (11.0 and 10.2 are recommended)
   cuda_vers = [
+    '11.1',
     '11.0',
     '10.2',
     '10.1',

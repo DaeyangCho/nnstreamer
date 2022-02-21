@@ -502,7 +502,7 @@ TorchCore::invoke (const GstTensorMemory *input, GstTensorMemory *output)
 
 #if (DBG)
   gint64 stop_time = g_get_real_time ();
-  g_message ("Invoke() is finished: % ms" G_GINT64_FORMAT, (stop_time - start_time));
+  g_message ("Invoke() is finished: % u s" G_GINT64_FORMAT, (stop_time - start_time));
 #endif
 
   return 0;
